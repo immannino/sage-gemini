@@ -2,10 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
-	"path"
 	"strings"
+	"time"
 
 	"github.com/disgoorg/log"
 	"github.com/immannino/sage-gemini/internal"
@@ -48,9 +47,17 @@ var (
 				log.Fatal(err)
 			}
 
+			var to string
+			if to == "" {
+				to = os.Getenv("RECIPIENT")
+			}
+			if to == "" {
+				log.Fatalf("no email recipient provided.\n%s", cmd.Usage())
+			}
+
 			fmt.Println(sitemap.XMLName.Local + "\n" + strings.Repeat("-", 32))
 			for _, v := range sitemap.URL {
-				fmt.Printf("%s %s %s %v\n", v.Loc, v.LastMod, v.ChangeFreq, v.Priority)
+				fmt.Printf("%s %s %s %f\n", v.Loc, v.ChangeFreq, v.LastMod, v.Priority)
 			}
 		},
 	}
@@ -72,19 +79,37 @@ var (
 				log.Fatalf("no email recipient provided.\n%s", cmd.Usage())
 			}
 
-			ctx := cmd.Context()
+			log.Debug("fetching sitemap")
 			sitemap, err := internal.FetchSitemap(sitemapUrl)
 			if err != nil {
 				log.Fatal(err)
 			}
 
+			log.Debug("parsing entires")
 			for _, v := range sitemap.URL {
-				contents, err := internal.FetchHTML(ctx, v.Loc)
+				contents, err := internal.FetchHTML(cmd.Context(), v.Loc)
 				if err != nil {
 					log.Fatal(err)
 				}
 
-				fmt.Println("Fetched contents for ", v.Loc, " content-length: ", len(contents))
+				title, err := internal.ParseTitle(contents)
+				if err != nil {
+					log.Error(err)
+					title = v.Loc
+				}
+
+				subject := strings.TrimSpace(title)
+				subject = strings.Trim(subject, "\n")
+				subject = fmt.Sprintf("%s.html", subject)
+
+				log.Debug("sending email")
+				if err := internal.Send(to, subject, contents); err != nil {
+					log.Error(err)
+				} else {
+					log.Infof("✧˖°. sage gemini email sent url=%s ✧˖°.", v.Loc)
+				}
+
+				time.Sleep(time.Second * 5)
 			}
 		},
 	}
@@ -101,35 +126,21 @@ var (
 				log.Fatalf("no email recipient provided.\n%s", cmd.Usage())
 			}
 
-			contents, err := internal.FetchHTML(cmd.Context(), "https://text.npr.org/")
+			contents, err := internal.FetchHTML(cmd.Context(), "https://text.npr.org")
 			if err != nil {
 				log.Fatal(err)
 			}
 
-			// sender := email.New(email.SenderOpts{
-			// 	Host:       os.Getenv("EMAIL_HOST"),
-			// 	Username:   os.Getenv("EMAIL_USERNAME"),
-			// 	Password:   os.Getenv("EMAIL_PASSWORD"),
-			// 	PortNumber: os.Getenv("EMAIL_PORT"),
-			// })
-			// m := email.NewMessage("sage gemini test email", "")
-			// m.To = []string{to}
-			f, err := ioutil.TempFile(path.Join("./"), "sage.*.html")
+			subject, err := internal.ParseTitle(contents)
 			if err != nil {
-				log.Fatal("open temp file error ", err)
+				log.Error(err)
+				subject = "✧˖°. sage gemini test email ✧˖°."
 			}
-			if _, err := f.WriteString(contents); err != nil {
-				log.Fatal("write contents error ", err)
-			}
-			if err := f.Close(); err != nil {
-				log.Fatal("file closer error ", err)
-			}
-			defer os.RemoveAll(f.Name())
 
-			if err := internal.Send(f.Name()); err != nil {
+			if err := internal.Send(to, subject, contents); err != nil {
 				log.Error(err)
 			} else {
-				log.Info("Tee hee")
+				log.Info("✧˖°. sage gemini test email sent ✧˖°.")
 			}
 		},
 	}
