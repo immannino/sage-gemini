@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"strings"
 	"time"
@@ -137,11 +138,25 @@ var (
 				subject = "✧˖°. sage gemini test email ✧˖°."
 			}
 
-			if err := internal.Send(to, subject, contents); err != nil {
+			tmp, err := ioutil.TempFile("./", "attachment.*.html")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			_, err = tmp.Write([]byte(contents))
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			defer tmp.Close()
+			defer os.RemoveAll(tmp.Name())
+
+			if err := internal.SendWithAttachment(to, subject, contents, tmp.Name()); err != nil {
 				log.Error(err)
 			} else {
 				log.Info("✧˖°. sage gemini test email sent ✧˖°.")
 			}
+
 		},
 	}
 )
